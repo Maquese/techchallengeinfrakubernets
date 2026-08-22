@@ -26,6 +26,23 @@ data "aws_eks_cluster_auth" "main" {
   name = aws_eks_cluster.main.name
 }
 
+data "aws_db_instance" "main" {
+  db_instance_identifier = var.rds_identifier
+}
+
+data "aws_security_group" "rds" {
+  filter {
+    name   = "group-name"
+    values = ["rds-sg"]
+  }
+
+  vpc_id = var.vpc_id
+}
+
+# data "aws_lambda_function" "auth" {
+#   function_name = var.lambda_function_name
+# }
+
 provider "kubernetes" {
   host                   = aws_eks_cluster.main.endpoint
   cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
@@ -69,7 +86,7 @@ resource "aws_security_group_rule" "allow_eks_to_rds" {
   from_port                = 3306
   to_port                  = 3306
   protocol                 = "tcp"
-  security_group_id        = var.rds_security_group_id
+  security_group_id        = data.aws_security_group.rds.id
   source_security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
 }
 
@@ -94,7 +111,7 @@ resource "kubernetes_secret_v1" "app" {
   }
   type = "Opaque"
   data = {
-    "ConnectionStrings__DefaultConnection" = "Server=${var.rds_endpoint};Port=3306;Database=Tests;User=root;Password=${var.rds_password};"
+    "ConnectionStrings__DefaultConnection" = "Server=${data.aws_db_instance.main.address};Port=3306;Database=Tests;User=root;Password=${var.rds_password};"
     "Jwt__SecretKey"                       = "sua-chave-super-secreta-muito-longa-para-256bits-change-me"
     "Jwt__Issuer"                          = "GestaoAutoRepara"
     "Jwt__Audience"                        = "GestaoAutoReparaUsers"
@@ -182,24 +199,24 @@ resource "aws_api_gateway_rest_api" "main" {
   body = jsonencode({
     openapi = "3.0.1"
     info    = { title = "example", version = "1.0" }
-    components = { securitySchemes = { lambda_authorizer = {
-      type                         = "apiKey"
-      name                         = "Authorization"
-      in                           = "header"
-      x-amazon-apigateway-authtype = "custom"
-      x-amazon-apigateway-authorizer = {
-        type                         = "request"
-        authorizerUri                = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${var.lambda_function_arn}/invocations"
-        authorizerResultTtlInSeconds = 0
-      }
-    } } }
+    # components = { securitySchemes = { lambda_authorizer = {
+    #   type                         = "apiKey"
+    #   name                         = "Authorization"
+    #   in                           = "header"
+    #   x-amazon-apigateway-authtype = "custom"
+    #   x-amazon-apigateway-authorizer = {
+    #     type                         = "request"
+    #     authorizerUri                = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${data.aws_lambda_function.auth.arn}/invocations"
+    #     authorizerResultTtlInSeconds = 0
+    #   }
+    # } } }
     paths = {
-      "/auth/token" = { post = { x-amazon-apigateway-integration = {
-        httpMethod           = "POST"
-        payloadFormatVersion = "1.0"
-        type                 = "AWS_PROXY"
-        uri                  = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${var.lambda_function_arn}/invocations"
-      } } }
+      # "/auth/token" = { post = { x-amazon-apigateway-integration = {
+      #   httpMethod           = "POST"
+      #   payloadFormatVersion = "1.0"
+      #   type                 = "AWS_PROXY"
+      #   uri                  = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${data.aws_lambda_function.auth.arn}/invocations"
+      # } } }
       "/" = { get = { x-amazon-apigateway-integration = {
         httpMethod           = "GET"
         payloadFormatVersion = "1.0"
@@ -207,7 +224,7 @@ resource "aws_api_gateway_rest_api" "main" {
         uri                  = "${local.application_base_url}/swagger/index.html"
       } } }
       "/api/Cliente/BuscarCliente" = { get = {
-        security = [{ lambda_authorizer = [] }]
+        #security = [{ lambda_authorizer = [] }]
         x-amazon-apigateway-integration = {
           httpMethod           = "GET"
           payloadFormatVersion = "1.0"
@@ -219,19 +236,19 @@ resource "aws_api_gateway_rest_api" "main" {
   })
 }
 
-resource "aws_lambda_permission" "api_gateway" {
-  statement_id  = "AllowApiGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = var.lambda_function_arn
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
-}
+# resource "aws_lambda_permission" "api_gateway" {
+#   statement_id  = "AllowApiGatewayInvoke"
+#   action        = "lambda:InvokeFunction"
+#   function_name = data.aws_lambda_function.auth.arn
+#   principal     = "apigateway.amazonaws.com"
+#   source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
+# }
 
 resource "aws_api_gateway_deployment" "main" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   triggers    = { redeployment = sha1(jsonencode(aws_api_gateway_rest_api.main.body)) }
   lifecycle { create_before_destroy = true }
-  depends_on = [aws_lambda_permission.api_gateway]
+  #depends_on = [aws_lambda_permission.api_gateway]
 }
 
 resource "aws_api_gateway_stage" "main" {

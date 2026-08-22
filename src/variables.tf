@@ -14,14 +14,21 @@ variable "eks_role_name" {
   type    = string
   default = "LabRole"
 }
-variable "rds_endpoint" { type = string }
-variable "rds_security_group_id" { type = string }
 variable "rds_password" {
   type      = string
-  sensitive = true
+  sensitive = "minha-senha"
 }
-variable "lambda_function_arn" { type = string }
 variable "container_image" {
   type    = string
   default = "maquese/techchallenge-3:v1"
+}
+
+variable "lambda_function_name" {
+  type = string
+  default = "techchallenge-auth"
+}
+
+variable "rds_identifier" {
+  type    = string
+  default = "techchallenge-mysql"
 }

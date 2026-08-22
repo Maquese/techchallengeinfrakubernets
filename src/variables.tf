@@ -16,16 +16,21 @@ variable "eks_role_name" {
 }
 variable "rds_password" {
   type      = string
-  sensitive = "minha-senha"
+  default = "minha-senha"
 }
 variable "container_image" {
   type    = string
   default = "maquese/techchallenge-3:v1"
 }
 
-variable "lambda_function_name" {
-  type = string
-  default = "techchallenge-auth"
+variable "auth_lambda_function_name" {
+  type    = string
+  default = "auto-repara-auth"
+}
+
+variable "authorizer_lambda_function_name" {
+  type    = string
+  default = "auto-repara-authorizer"
 }
 
 variable "rds_identifier" {

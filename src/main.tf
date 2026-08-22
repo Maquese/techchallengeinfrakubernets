@@ -39,9 +39,13 @@ data "aws_security_group" "rds" {
   vpc_id = var.vpc_id
 }
 
-# data "aws_lambda_function" "auth" {
-#   function_name = var.lambda_function_name
-# }
+data "aws_lambda_function" "auth" {
+  function_name = var.auth_lambda_function_name
+}
+
+data "aws_lambda_function" "authorizer" {
+  function_name = var.authorizer_lambda_function_name
+}
 
 provider "kubernetes" {
   host                   = aws_eks_cluster.main.endpoint
@@ -199,24 +203,24 @@ resource "aws_api_gateway_rest_api" "main" {
   body = jsonencode({
     openapi = "3.0.1"
     info    = { title = "example", version = "1.0" }
-    # components = { securitySchemes = { lambda_authorizer = {
-    #   type                         = "apiKey"
-    #   name                         = "Authorization"
-    #   in                           = "header"
-    #   x-amazon-apigateway-authtype = "custom"
-    #   x-amazon-apigateway-authorizer = {
-    #     type                         = "request"
-    #     authorizerUri                = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${data.aws_lambda_function.auth.arn}/invocations"
-    #     authorizerResultTtlInSeconds = 0
-    #   }
-    # } } }
+    components = { securitySchemes = { lambda_authorizer = {
+      type                         = "apiKey"
+      name                         = "Authorization"
+      in                           = "header"
+      x-amazon-apigateway-authtype = "custom"
+      x-amazon-apigateway-authorizer = {
+        type                         = "token"
+        authorizerUri                = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${data.aws_lambda_function.authorizer.arn}/invocations"
+        authorizerResultTtlInSeconds = 0
+      }
+    } } }
     paths = {
-      # "/auth/token" = { post = { x-amazon-apigateway-integration = {
-      #   httpMethod           = "POST"
-      #   payloadFormatVersion = "1.0"
-      #   type                 = "AWS_PROXY"
-      #   uri                  = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${data.aws_lambda_function.auth.arn}/invocations"
-      # } } }
+      "/auth/usuario" = { post = { x-amazon-apigateway-integration = {
+        httpMethod           = "POST"
+        payloadFormatVersion = "1.0"
+        type                 = "AWS_PROXY"
+        uri                  = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${data.aws_lambda_function.auth.arn}/invocations"
+      } } }
       "/" = { get = { x-amazon-apigateway-integration = {
         httpMethod           = "GET"
         payloadFormatVersion = "1.0"
@@ -224,7 +228,7 @@ resource "aws_api_gateway_rest_api" "main" {
         uri                  = "${local.application_base_url}/swagger/index.html"
       } } }
       "/api/Cliente/BuscarCliente" = { get = {
-        #security = [{ lambda_authorizer = [] }]
+        security = [{ lambda_authorizer = [] }]
         x-amazon-apigateway-integration = {
           httpMethod           = "GET"
           payloadFormatVersion = "1.0"
@@ -236,19 +240,27 @@ resource "aws_api_gateway_rest_api" "main" {
   })
 }
 
-# resource "aws_lambda_permission" "api_gateway" {
-#   statement_id  = "AllowApiGatewayInvoke"
-#   action        = "lambda:InvokeFunction"
-#   function_name = data.aws_lambda_function.auth.arn
-#   principal     = "apigateway.amazonaws.com"
-#   source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
-# }
+resource "aws_lambda_permission" "auth_api_gateway" {
+  statement_id  = "AllowApiGatewayInvokeAuth"
+  action        = "lambda:InvokeFunction"
+  function_name = data.aws_lambda_function.auth.arn
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
+}
+
+resource "aws_lambda_permission" "authorizer_api_gateway" {
+  statement_id  = "AllowApiGatewayInvokeAuthorizer"
+  action        = "lambda:InvokeFunction"
+  function_name = data.aws_lambda_function.authorizer.arn
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
+}
 
 resource "aws_api_gateway_deployment" "main" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   triggers    = { redeployment = sha1(jsonencode(aws_api_gateway_rest_api.main.body)) }
   lifecycle { create_before_destroy = true }
-  #depends_on = [aws_lambda_permission.api_gateway]
+  depends_on = [aws_lambda_permission.auth_api_gateway, aws_lambda_permission.authorizer_api_gateway]
 }
 
 resource "aws_api_gateway_stage" "main" {

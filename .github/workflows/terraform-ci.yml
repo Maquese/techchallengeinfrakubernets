@@ -65,7 +65,7 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
 
       - name: Initialize Terraform
-        run: terraform init -backend=false
+        run: terraform init -reconfigure -input=false
 
       - name: Create Terraform plan
         env:

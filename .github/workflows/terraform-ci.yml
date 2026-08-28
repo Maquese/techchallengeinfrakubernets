@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 defaults:
   run:
@@ -45,6 +46,40 @@ jobs:
       - name: Validate Terraform
         run: terraform validate
 
+      - name: Open pull request to main
+        if: github.event_name == 'push'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.ref.replace('refs/heads/', '')
+            if (!branch.startsWith('feature/')) {
+              core.setFailed(`Only feature/* branches may open pull requests: ${branch}`)
+              return
+            }
+
+            const { owner, repo } = context.repo
+            const existing = await github.rest.pulls.list({
+              owner,
+              repo,
+              head: `${owner}:${branch}`,
+              base: 'main',
+              state: 'open'
+            })
+
+            if (existing.data.length === 0) {
+              await github.rest.pulls.create({
+                owner,
+                repo,
+                head: branch,
+                base: 'main',
+                title: `Merge ${branch} into main`,
+                body: 'Pull request criada automaticamente após a validação do Terraform.'
+              })
+              core.info(`Pull request criada para ${branch}.`)
+            } else {
+              core.info(`Já existe uma pull request aberta para ${branch}.`)
+            }
+
   plan:
     name: Terraform plan
     needs: validate
@@ -65,7 +100,7 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
 
       - name: Initialize Terraform
-        run: terraform init -backend=false
+        run: terraform init -reconfigure -input=false
 
       - name: Create Terraform plan
         env:

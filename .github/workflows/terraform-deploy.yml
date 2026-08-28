@@ -33,7 +33,7 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
 
       - name: Initialize Terraform
-        run: terraform init -input=false
+        run: terraform init -reconfigure -input=false
 
       - name: Apply Terraform
         env:

@@ -123,7 +123,7 @@ resource "kubernetes_secret_v1" "app" {
   }
   type = "Opaque"
   data = {
-    "ConnectionStrings__DefaultConnection" = "Server=${data.aws_db_instance.main.address};Port=3306;Database=Tests;User=root;Password=${var.rds_password};"
+    "ConnectionStrings__DefaultConnection" = "Server=${data.aws_db_instance.main.address};Port=3306;Database=Tests;User=root;Password=${var.rds_password}"
     "Jwt__SecretKey"                       = "sua-chave-super-secreta-muito-longa-para-256bits-change-me"
     "Jwt__Issuer"                          = "GestaoAutoRepara"
     "Jwt__Audience"                        = "GestaoAutoReparaUsers"
@@ -149,7 +149,7 @@ resource "kubernetes_deployment_v1" "app" {
         container {
           name              = "auto-repara-api"
           image             = var.container_image
-          image_pull_policy = "IfNotPresent"
+          image_pull_policy = "Always"
           env_from {
             config_map_ref {
               name = kubernetes_config_map_v1.appsettings.metadata[0].name
@@ -224,6 +224,12 @@ resource "aws_api_gateway_rest_api" "main" {
     } } }
     paths = {
       "/auth/usuario" = { post = { x-amazon-apigateway-integration = {
+        httpMethod           = "POST"
+        payloadFormatVersion = "1.0"
+        type                 = "AWS_PROXY"
+        uri                  = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${data.aws_lambda_function.auth.arn}/invocations"
+      } } }
+      "/auth/cliente" = { post = { x-amazon-apigateway-integration = {
         httpMethod           = "POST"
         payloadFormatVersion = "1.0"
         type                 = "AWS_PROXY"

@@ -241,14 +241,141 @@ resource "aws_api_gateway_rest_api" "main" {
         type                 = "HTTP_PROXY"
         uri                  = "${local.application_base_url}/swagger/index.html"
       } } }
-      "/api/Cliente/BuscarCliente" = { get = {
-        security = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = {
-          httpMethod           = "GET"
-          payloadFormatVersion = "1.0"
-          type                 = "HTTP_PROXY"
-          uri                  = "${local.application_base_url}/api/Cliente/BuscarCliente"
-        }
+      "/api/cliente/criarcliente" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/criarcliente" }
+      } }
+      "/api/cliente/atualizarcliente" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/atualizarcliente" }
+      } }
+      "/api/cliente/buscarcliente" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/buscarcliente" }
+      } }
+      "/api/cliente/inativarcliente" = { delete = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/inativarcliente" }
+      } }
+      "/api/cliente/adicionarveiculo" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/adicionarveiculo" }
+      } }
+      "/api/cliente/buscarveiculo" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/buscarveiculo" }
+      } }
+      "/api/cliente/atualizarveiculo" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/atualizarveiculo" }
+      } }
+      "/api/cliente/inativarveiculo" = { delete = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/inativarveiculo" }
+      } }
+      "/api/itemestoque/adicionaritemestoque" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/adicionaritemestoque" }
+      } }
+      "/api/itemestoque/listaritensestoque" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/listaritensestoque" }
+      } }
+      "/api/itemestoque/obteritemestoque" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/obteritemestoque" }
+      } }
+      "/api/itemestoque/atualizaritemestoque" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/atualizaritemestoque" }
+      } }
+      "/api/itemestoque/inativaritemestoque" = { delete = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/inativaritemestoque" }
+      } }
+      "/api/itemestoque/adicionarquantidadeestoque" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/adicionarquantidadeestoque" }
+      } }
+      "/api/orcamento/criarorcamento" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/criarorcamento" }
+      } }
+      "/api/orcamento/aprovarorcamento" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/aprovarorcamento" }
+      } }
+      "/api/orcamento/negarorcamento" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/negarorcamento" }
+      } }
+      "/api/orcamento/pagamentoefetuado" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/pagamentoefetuado" }
+      } }
+      "/api/orcamento/listarorcamentos" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/listarorcamentos" }
+      } }
+      "/api/ordemservico/criarordemservico" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/criarordemservico" }
+      } }
+      "/api/ordemservico/atribuirmecanicoemdiagnostico" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/atribuirmecanicoemdiagnostico" }
+      } }
+      "/api/ordemservico/diagnosticofinalizado" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/diagnosticofinalizado" }
+      } }
+      "/api/ordemservico/atribuirmecanicoemexecucao" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/atribuirmecanicoemexecucao" }
+      } }
+      "/api/ordemservico/finalizarordemservico" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/finalizarordemservico" }
+      } }
+      "/api/ordemservico/statusatualordensservicocliente" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/statusatualordensservicocliente" }
+      } }
+      "/api/ordemservico/tempomedioexecucaominutos" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/tempomedioexecucaominutos" }
+      } }
+      "/api/ordemservico/listarordensservicoporstatus" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/listarordensservicoporstatus" }
+      } }
+      "/api/ordemservico/aberturaos" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/aberturaos" }
+      } }
+      "/api/ordemservico/consultastatusordemservico" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/consultastatusordemservico" }
+      } }
+      "/api/ordemservico/adicionarservico" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/adicionarservico" }
+      } }
+      "/api/ordemservico/buscarservico" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/buscarservico" }
+      } }
+      "/api/ordemservico/atualizarservico" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/atualizarservico" }
+      } }
+      "/api/ordemservico/inativarservico" = { delete = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/inativarservico" }
+      } }
+      "/api/ordemservico/listarservicosativos" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/listarservicosativos" }
       } }
     }
   })

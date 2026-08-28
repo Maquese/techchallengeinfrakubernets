@@ -1,6 +1,9 @@
 # Local .terraform directories
 .terraform/
 
+# GitHub Actions self-hosted runner
+actions-runner/
+
 # .tfstate files
 *.tfstate
 *.tfstate.*

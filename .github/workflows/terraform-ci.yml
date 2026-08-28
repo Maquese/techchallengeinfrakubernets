@@ -1,0 +1,73 @@
+name: Terraform CI
+
+on:
+  push:
+    branches:
+      - "feature/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: src
+
+jobs:
+  validate:
+    name: Terraform validate
+    runs-on: [self-hosted, linux, x64, eks-runner]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Enforce feature source branch
+        if: github.event_name == 'pull_request'
+        env:
+          SOURCE_BRANCH: ${{ github.head_ref }}
+        run: |
+          case "$SOURCE_BRANCH" in
+            feature/*) ;;
+            *) echo "Only feature/* branches may open pull requests to main."; exit 1 ;;
+          esac
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Initialize Terraform
+        run: terraform init -backend=false
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive
+
+      - name: Validate Terraform
+        run: terraform validate
+
+  plan:
+    name: Terraform plan
+    needs: validate
+    runs-on: [self-hosted, linux, x64, eks-runner]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Initialize Terraform
+        run: terraform init -backend=false
+
+      - name: Create Terraform plan
+        env:
+          TF_VAR_rds_password: ${{ secrets.TF_VAR_RDS_PASSWORD }}
+        run: terraform plan -input=false -out=tfplan

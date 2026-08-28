@@ -15,7 +15,7 @@ variable "eks_role_name" {
   default = "LabRole"
 }
 variable "rds_password" {
-  type      = string
+  type    = string
   default = "minha-senha"
 }
 variable "container_image" {

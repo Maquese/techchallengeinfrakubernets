@@ -1,0 +1,41 @@
+name: Terraform Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: src
+
+jobs:
+  deploy:
+    name: Deploy to AWS
+    runs-on: [self-hosted, linux, x64, eks-runner]
+    environment: production
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Initialize Terraform
+        run: terraform init -input=false
+
+      - name: Apply Terraform
+        env:
+          TF_VAR_rds_password: ${{ secrets.TF_VAR_RDS_PASSWORD }}
+        run: terraform apply -input=false -auto-approve

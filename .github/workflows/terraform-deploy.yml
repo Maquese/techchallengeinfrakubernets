@@ -35,6 +35,11 @@ jobs:
       - name: Initialize Terraform
         run: terraform init -reconfigure -input=false
 
+      - name: Reconcile Kubernetes Deployment state
+        run: |
+          terraform state rm kubernetes_deployment_v1.app || true
+          terraform import -input=false kubernetes_deployment_v1.app default/auto-repara-deployment
+
       - name: Apply Terraform
         env:
           TF_VAR_rds_password: ${{ secrets.TF_VAR_RDS_PASSWORD }}

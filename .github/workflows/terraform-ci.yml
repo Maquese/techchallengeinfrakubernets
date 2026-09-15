@@ -105,4 +105,4 @@ jobs:
       - name: Create Terraform plan
         env:
           TF_VAR_rds_password: ${{ secrets.TF_VAR_RDS_PASSWORD }}
-        run: terraform plan -input=false -out=tfplan
+        run: terraform plan -refresh=false -input=false -out=tfplan

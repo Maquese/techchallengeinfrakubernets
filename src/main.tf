@@ -12,6 +12,10 @@ terraform {
       source  = "gavinbunney/kubectl"
       version = "1.19.0"
     }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 2.17"
+    }
   }
 
   backend "s3" {
@@ -68,6 +72,14 @@ provider "kubectl" {
   load_config_file       = false
 }
 
+provider "helm" {
+  kubernetes {
+    host                   = aws_eks_cluster.main.endpoint
+    cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
+    token                  = data.aws_eks_cluster_auth.main.token
+  }
+}
+
 
 resource "aws_eks_cluster" "main" {
   name     = "cluster-eks"
@@ -85,12 +97,80 @@ resource "aws_eks_node_group" "main" {
   node_role_arn   = data.aws_iam_role.lab.arn
   subnet_ids      = var.subnet_ids
   scaling_config {
-    desired_size = 2
+    desired_size = 1
     min_size     = 1
     max_size     = 4
   }
-  instance_types = ["t3.micro"]
+  instance_types = ["t3.small"]
   capacity_type  = "ON_DEMAND"
+}
+
+resource "helm_release" "datadog_operator" {
+  name             = "datadog-operator"
+  repository       = "https://helm.datadoghq.com"
+  chart            = "datadog-operator"
+  namespace        = "datadog"
+  create_namespace = true
+
+  depends_on = [aws_eks_node_group.main]
+}
+
+resource "kubernetes_secret_v1" "datadog" {
+  metadata {
+    name      = "datadog-secret"
+    namespace = "datadog"
+  }
+
+  type = "Opaque"
+
+  data = {
+    "api-key" = var.datadog_api_key
+  }
+
+  depends_on = [helm_release.datadog_operator]
+}
+
+resource "kubectl_manifest" "datadog_agent" {
+  yaml_body = yamlencode({
+    apiVersion = "datadoghq.com/v2alpha1"
+    kind       = "DatadogAgent"
+    metadata = {
+      name      = "datadog"
+      namespace = "datadog"
+    }
+    spec = {
+      global = {
+        clusterName = aws_eks_cluster.main.name
+        site        = var.datadog_site
+        credentials = {
+          apiSecret = {
+            secretName = kubernetes_secret_v1.datadog.metadata[0].name
+            keyName    = "api-key"
+          }
+        }
+        tags = ["env:production", "service:auto-repara-api"]
+      }
+      features = {
+        clusterChecks = {
+          enabled = true
+        }
+        orchestratorExplorer = {
+          enabled = true
+        }
+        apm = {
+          instrumentation = {
+            enabled = true
+          }
+        }
+        logCollection = {
+          enabled             = true
+          containerCollectAll = true
+        }
+      }
+    }
+  })
+
+  depends_on = [kubernetes_secret_v1.datadog]
 }
 
 resource "aws_security_group_rule" "allow_eks_to_rds" {
@@ -123,7 +203,7 @@ resource "kubernetes_secret_v1" "app" {
   }
   type = "Opaque"
   data = {
-    "ConnectionStrings__DefaultConnection" = "Server=${data.aws_db_instance.main.address};Port=3306;Database=Tests;User=root;Password=${var.rds_password};"
+    "ConnectionStrings__DefaultConnection" = "Server=${data.aws_db_instance.main.address};Port=3306;Database=Tests;User=root;Password=${var.rds_password}"
     "Jwt__SecretKey"                       = "sua-chave-super-secreta-muito-longa-para-256bits-change-me"
     "Jwt__Issuer"                          = "GestaoAutoRepara"
     "Jwt__Audience"                        = "GestaoAutoReparaUsers"
@@ -135,6 +215,12 @@ resource "kubernetes_secret_v1" "app" {
 resource "kubernetes_deployment_v1" "app" {
   metadata {
     name = "auto-repara-deployment"
+    labels = {
+      app                          = "auto-repara-api"
+      "tags.datadoghq.com/env"     = "production"
+      "tags.datadoghq.com/service" = "auto-repara-api"
+      "tags.datadoghq.com/version" = "v1"
+    }
   }
   spec {
     replicas = 1
@@ -143,13 +229,18 @@ resource "kubernetes_deployment_v1" "app" {
     }
     template {
       metadata {
-        labels = { app = "auto-repara-api" }
+        labels = {
+          app                          = "auto-repara-api"
+          "tags.datadoghq.com/env"     = "production"
+          "tags.datadoghq.com/service" = "auto-repara-api"
+          "tags.datadoghq.com/version" = "v1"
+        }
       }
       spec {
         container {
           name              = "auto-repara-api"
           image             = var.container_image
-          image_pull_policy = "IfNotPresent"
+          image_pull_policy = "Always"
           env_from {
             config_map_ref {
               name = kubernetes_config_map_v1.appsettings.metadata[0].name
@@ -160,10 +251,56 @@ resource "kubernetes_deployment_v1" "app" {
               name = kubernetes_secret_v1.app.metadata[0].name
             }
           }
+          env {
+            name  = "DD_ENV"
+            value = "production"
+          }
+          env {
+            name  = "DD_SERVICE"
+            value = "auto-repara-api"
+          }
+          env {
+            name  = "DD_VERSION"
+            value = "v1"
+          }
+          env {
+            name  = "DD_LOGS_INJECTION"
+            value = "true"
+          }
+          env {
+            name = "DD_AGENT_HOST"
+            value_from {
+              field_ref {
+                field_path = "status.hostIP"
+              }
+            }
+          }
           port {
             name           = "http"
             container_port = 80
             protocol       = "TCP"
+          }
+          readiness_probe {
+            http_get {
+              path   = var.health_check_path
+              port   = "http"
+              scheme = "HTTP"
+            }
+            initial_delay_seconds = 10
+            period_seconds        = 10
+            timeout_seconds       = 3
+            failure_threshold     = 3
+          }
+          liveness_probe {
+            http_get {
+              path   = var.health_check_path
+              port   = "http"
+              scheme = "HTTP"
+            }
+            initial_delay_seconds = 30
+            period_seconds        = 20
+            timeout_seconds       = 5
+            failure_threshold     = 3
           }
           resources {
             requests = { cpu = "100m", memory = "200Mi" }
@@ -174,6 +311,45 @@ resource "kubernetes_deployment_v1" "app" {
     }
   }
   depends_on = [kubernetes_config_map_v1.appsettings, kubernetes_secret_v1.app]
+}
+
+resource "kubernetes_horizontal_pod_autoscaler_v2" "app" {
+  metadata {
+    name = "auto-repara-hpa"
+  }
+
+  spec {
+    min_replicas = 2
+    max_replicas = 4
+
+    scale_target_ref {
+      api_version = "apps/v1"
+      kind        = "Deployment"
+      name        = "auto-repara-deployment"
+    }
+
+    metric {
+      type = "Resource"
+      resource {
+        name = "cpu"
+        target {
+          type                = "Utilization"
+          average_utilization = 60
+        }
+      }
+    }
+
+    metric {
+      type = "Resource"
+      resource {
+        name = "memory"
+        target {
+          type                = "Utilization"
+          average_utilization = 70
+        }
+      }
+    }
+  }
 }
 
 resource "kubernetes_service_v1" "app" {
@@ -207,10 +383,10 @@ locals {
 }
 
 resource "aws_api_gateway_rest_api" "main" {
-  name = "example"
+  name = "prod"
   body = jsonencode({
     openapi = "3.0.1"
-    info    = { title = "example", version = "1.0" }
+    info    = { title = "Auto-repara-api", version = "1.0" }
     components = { securitySchemes = { lambda_authorizer = {
       type                         = "apiKey"
       name                         = "Authorization"
@@ -229,20 +405,166 @@ resource "aws_api_gateway_rest_api" "main" {
         type                 = "AWS_PROXY"
         uri                  = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${data.aws_lambda_function.auth.arn}/invocations"
       } } }
-      "/" = { get = { x-amazon-apigateway-integration = {
-        httpMethod           = "GET"
+      "/auth/cliente" = { post = { x-amazon-apigateway-integration = {
+        httpMethod           = "POST"
         payloadFormatVersion = "1.0"
-        type                 = "HTTP_PROXY"
-        uri                  = "${local.application_base_url}/swagger/index.html"
+        type                 = "AWS_PROXY"
+        uri                  = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${data.aws_lambda_function.auth.arn}/invocations"
       } } }
-      "/api/Cliente/BuscarCliente" = { get = {
-        security = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = {
-          httpMethod           = "GET"
-          payloadFormatVersion = "1.0"
-          type                 = "HTTP_PROXY"
-          uri                  = "${local.application_base_url}/api/Cliente/BuscarCliente"
+      "/swagger/{proxy+}" = {
+        parameters = [{
+          name     = "proxy"
+          in       = "path"
+          required = true
+          schema   = { type = "string" }
+        }]
+        get = {
+          x-amazon-apigateway-integration = {
+            httpMethod           = "GET"
+            payloadFormatVersion = "1.0"
+            type                 = "HTTP_PROXY"
+            uri                  = "${local.application_base_url}/swagger/{proxy}"
+            requestParameters = {
+              "integration.request.path.proxy" = "method.request.path.proxy"
+            }
+          }
         }
+      }
+      "/api/cliente/criarcliente" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/criarcliente" }
+      } }
+      "/api/cliente/atualizarcliente" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/atualizarcliente" }
+      } }
+      "/api/cliente/buscarcliente" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/buscarcliente" }
+      } }
+      "/api/cliente/inativarcliente" = { delete = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/inativarcliente" }
+      } }
+      "/api/cliente/adicionarveiculo" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/adicionarveiculo" }
+      } }
+      "/api/cliente/buscarveiculo" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/buscarveiculo" }
+      } }
+      "/api/cliente/atualizarveiculo" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/atualizarveiculo" }
+      } }
+      "/api/cliente/inativarveiculo" = { delete = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/inativarveiculo" }
+      } }
+      "/api/itemestoque/adicionaritemestoque" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/adicionaritemestoque" }
+      } }
+      "/api/itemestoque/listaritensestoque" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/listaritensestoque" }
+      } }
+      "/api/itemestoque/obteritemestoque" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/obteritemestoque" }
+      } }
+      "/api/itemestoque/atualizaritemestoque" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/atualizaritemestoque" }
+      } }
+      "/api/itemestoque/inativaritemestoque" = { delete = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/inativaritemestoque" }
+      } }
+      "/api/itemestoque/adicionarquantidadeestoque" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/adicionarquantidadeestoque" }
+      } }
+      "/api/orcamento/criarorcamento" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/criarorcamento" }
+      } }
+      "/api/orcamento/aprovarorcamento" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/aprovarorcamento" }
+      } }
+      "/api/orcamento/negarorcamento" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/negarorcamento" }
+      } }
+      "/api/orcamento/pagamentoefetuado" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/pagamentoefetuado" }
+      } }
+      "/api/orcamento/listarorcamentos" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/listarorcamentos" }
+      } }
+      "/api/ordemservico/criarordemservico" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/criarordemservico" }
+      } }
+      "/api/ordemservico/atribuirmecanicoemdiagnostico" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/atribuirmecanicoemdiagnostico" }
+      } }
+      "/api/ordemservico/diagnosticofinalizado" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/diagnosticofinalizado" }
+      } }
+      "/api/ordemservico/atribuirmecanicoemexecucao" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/atribuirmecanicoemexecucao" }
+      } }
+      "/api/ordemservico/finalizarordemservico" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/finalizarordemservico" }
+      } }
+      "/api/ordemservico/statusatualordensservicocliente" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/statusatualordensservicocliente" }
+      } }
+      "/api/ordemservico/tempomedioexecucaominutos" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/tempomedioexecucaominutos" }
+      } }
+      "/api/ordemservico/listarordensservicoporstatus" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/listarordensservicoporstatus" }
+      } }
+      "/api/ordemservico/aberturaos" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/aberturaos" }
+      } }
+      "/api/ordemservico/consultastatusordemservico" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/consultastatusordemservico" }
+      } }
+      "/api/ordemservico/adicionarservico" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/adicionarservico" }
+      } }
+      "/api/ordemservico/buscarservico" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/buscarservico" }
+      } }
+      "/api/ordemservico/atualizarservico" = { post = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/atualizarservico" }
+      } }
+      "/api/ordemservico/inativarservico" = { delete = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/inativarservico" }
+      } }
+      "/api/ordemservico/listarservicosativos" = { get = {
+        security                        = [{ lambda_authorizer = [] }]
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/listarservicosativos" }
       } }
     }
   })
@@ -274,7 +596,7 @@ resource "aws_api_gateway_deployment" "main" {
 resource "aws_api_gateway_stage" "main" {
   deployment_id = aws_api_gateway_deployment.main.id
   rest_api_id   = aws_api_gateway_rest_api.main.id
-  stage_name    = "example"
+  stage_name    = "prod"
 }
 
 output "api_url" { value = "https://${aws_api_gateway_rest_api.main.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.main.stage_name}" }

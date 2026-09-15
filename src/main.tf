@@ -203,7 +203,7 @@ resource "kubernetes_secret_v1" "app" {
   }
   type = "Opaque"
   data = {
-    "ConnectionStrings__DefaultConnection" = "Server=${data.aws_db_instance.main.endpoint};Port=3306;Database=Tests;User=root;Password=${var.rds_password}"
+    "ConnectionStrings__DefaultConnection" = "Server=${data.aws_db_instance.main.endpoint};Database=Tests;User=root;Password=${var.rds_password}"
     "Jwt__SecretKey"                       = "sua-chave-super-secreta-muito-longa-para-256bits-change-me"
     "Jwt__Issuer"                          = "GestaoAutoRepara"
     "Jwt__Audience"                        = "GestaoAutoReparaUsers"

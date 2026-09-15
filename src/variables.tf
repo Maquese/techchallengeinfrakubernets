@@ -39,8 +39,8 @@ variable "rds_identifier" {
 }
 
 variable "datadog_api_key" {
-  type      = string
-  default = "3e4f4e1d5e5dbb406cc861f33fb9a4ff" 
+  type    = string
+  default = "3e4f4e1d5e5dbb406cc861f33fb9a4ff"
 }
 
 variable "datadog_site" {

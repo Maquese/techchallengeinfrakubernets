@@ -383,10 +383,10 @@ locals {
 }
 
 resource "aws_api_gateway_rest_api" "main" {
-  name = "example"
+  name = "prod"
   body = jsonencode({
     openapi = "3.0.1"
-    info    = { title = "example", version = "1.0" }
+    info    = { title = "Auto-repara-api", version = "1.0" }
     components = { securitySchemes = { lambda_authorizer = {
       type                         = "apiKey"
       name                         = "Authorization"
@@ -411,12 +411,25 @@ resource "aws_api_gateway_rest_api" "main" {
         type                 = "AWS_PROXY"
         uri                  = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${data.aws_lambda_function.auth.arn}/invocations"
       } } }
-      "/" = { get = { x-amazon-apigateway-integration = {
-        httpMethod           = "GET"
-        payloadFormatVersion = "1.0"
-        type                 = "HTTP_PROXY"
-        uri                  = "${local.application_base_url}/swagger/index.html"
-      } } }
+      "/swagger/{proxy+}" = {
+        parameters = [{
+          name     = "proxy"
+          in       = "path"
+          required = true
+          schema   = { type = "string" }
+        }]
+        get = {
+          x-amazon-apigateway-integration = {
+            httpMethod           = "GET"
+            payloadFormatVersion = "1.0"
+            type                 = "HTTP_PROXY"
+            uri                  = "${local.application_base_url}/swagger/{proxy}"
+            requestParameters = {
+              "integration.request.path.proxy" = "method.request.path.proxy"
+            }
+          }
+        }
+      }
       "/api/cliente/criarcliente" = { post = {
         security                        = [{ lambda_authorizer = [] }]
         x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/criarcliente" }
@@ -583,7 +596,7 @@ resource "aws_api_gateway_deployment" "main" {
 resource "aws_api_gateway_stage" "main" {
   deployment_id = aws_api_gateway_deployment.main.id
   rest_api_id   = aws_api_gateway_rest_api.main.id
-  stage_name    = "example"
+  stage_name    = "prod"
 }
 
 output "api_url" { value = "https://${aws_api_gateway_rest_api.main.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.main.stage_name}" }

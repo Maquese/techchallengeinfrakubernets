@@ -221,7 +221,7 @@ A aplicação é exposta através do API Gateway e também por um Load Balancer 
 O Terraform configura um endpoint no API Gateway para expor a documentação Swagger da aplicação na rota raiz, acessível por:
 
 ```text
-https://<api-id>.execute-api.<regiao>.amazonaws.com/example/
+https://<api-id>.execute-api.<regiao>.amazonaws.com/prod/
 ```
 
 Também é possível acessar diretamente a documentação da API a partir do load balancer, se a aplicação estiver rodando no EKS:
@@ -235,7 +235,7 @@ http://<load-balancer-host>/swagger/index.html
 Para testar a API no Postman, use a URL base gerada pelo API Gateway:
 
 ```text
-https://<api-id>.execute-api.<regiao>.amazonaws.com/example
+https://<api-id>.execute-api.<regiao>.amazonaws.com/prod
 ```
 
 Se houver uma collection oficial do projeto, ela deve ser adicionada aqui no formato:
@@ -249,7 +249,7 @@ https://www.postman.com/<workspace>/<collection>
 - Os valores sensíveis devem sempre ficar em secrets, nunca em código versionado.
 - O projeto usa um backend S3 para o state do Terraform.
 - O cluster EKS e a aplicação dependem de permissões AWS previamente configuradas no ambiente do runner.
-- O canal `example` no API Gateway é a etapa final do deployment público da API.
+- O canal `prod` no API Gateway é a etapa final do deployment público da API.
 
 ## Boas práticas recomendadas
 

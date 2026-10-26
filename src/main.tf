@@ -19,7 +19,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket       = "amz-lab-techchallenge-pt3"
+    bucket       = "amz-lab-techchallenge-pt4"
     key          = "techchallenge/eks/terraform.tfstate"
     region       = "us-east-1"
     encrypt      = true

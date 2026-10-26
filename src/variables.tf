@@ -4,11 +4,11 @@ variable "aws_region" {
 }
 variable "vpc_id" {
   type    = string
-  default = "vpc-0b8ea6480aff3581d"
+  default = "vpc-0c04f9d3f5e86ae50"
 }
 variable "subnet_ids" {
   type    = list(string)
-  default = ["subnet-01799be41421baa8d", "subnet-0d850838bbd1a4e72", "subnet-0a6b760a3d564676b"]
+  default = ["subnet-02cd6e93afd15dae9","subnet-02fb07eb66ab63955"]
 }
 variable "eks_role_name" {
   type    = string
@@ -20,7 +20,7 @@ variable "rds_password" {
 }
 variable "container_image" {
   type    = string
-  default = "maquese/techchallenge-3:v1"
+  default = "maquese/clienteveiculo:latest"
 }
 
 variable "auth_lambda_function_name" {
@@ -35,7 +35,7 @@ variable "authorizer_lambda_function_name" {
 
 variable "rds_identifier" {
   type    = string
-  default = "techchallenge-mysql"
+  default = "clienteveiculo-mysql"
 }
 
 variable "datadog_api_key" {

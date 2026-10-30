@@ -8,19 +8,16 @@ variable "vpc_id" {
 }
 variable "subnet_ids" {
   type    = list(string)
-  default = ["subnet-02cd6e93afd15dae9","subnet-02fb07eb66ab63955"]
+  default = ["subnet-02cd6e93afd15dae9", "subnet-02fb07eb66ab63955"]
 }
 variable "eks_role_name" {
   type    = string
   default = "LabRole"
 }
 variable "rds_password" {
-  type    = string
-  default = "minha-senha"
-}
-variable "container_image" {
-  type    = string
-  default = "maquese/clienteveiculo:latest"
+  type      = string
+  sensitive = true
+  default   = "minha-senha"
 }
 
 variable "auth_lambda_function_name" {
@@ -33,9 +30,34 @@ variable "authorizer_lambda_function_name" {
   default = "auto-repara-authorizer"
 }
 
-variable "rds_identifier" {
+variable "container_image_clienteveiculo" {
+  type    = string
+  default = "maquese/clienteveiculo:latest"
+}
+
+variable "rds_identifier_clienteveiculo" {
   type    = string
   default = "clienteveiculo-mysql"
+}
+
+variable "container_image_ositemestoque" {
+  type    = string
+  default = "maquese/ositemestoque:latest"
+}
+
+variable "rds_identifier_ositemestoque" {
+  type    = string
+  default = "ordemservico-mysql"
+}
+
+variable "container_image_orcamento" {
+  type    = string
+  default = "maquese/orcamento:latest"
+}
+
+variable "dynamo_identifier_orcamento" {
+  type    = string
+  default = "Orcamento"
 }
 
 variable "datadog_api_key" {

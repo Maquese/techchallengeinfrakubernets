@@ -98,10 +98,13 @@ Antes de executar ou fazer deploy deste ambiente, verifique se você possui:
 
 ### Aplicação
 
-- Faz deploy de um container da aplicação em um Deployment Kubernetes
-- Expõe a API por meio de um `Service` do tipo `LoadBalancer`
-- Configura `HorizontalPodAutoscaler` para escalonamento de pods
-- Define variáveis de ambiente e secrets da aplicação
+- Faz deploy de três aplicações independentes, cada uma com seu `Deployment`, `Service` do tipo `LoadBalancer` e `HorizontalPodAutoscaler`:
+  - Cliente/veículo (`container_image_clienteveiculo`)
+  - Itens de estoque (`container_image_ositemestoque`)
+  - Orçamento e ordem de serviço (`container_image_orcamento`)
+- Compartilha o ConfigMap `appsettings-config`, pois as configurações ASP.NET são iguais entre os containers
+- Mantém secrets separados por aplicação; ClienteVeiculo e OsItemEstoque usam suas próprias instâncias RDS, e Orcamento recebe as configurações de dados da própria aplicação
+- Encaminha as rotas do API Gateway para o Load Balancer da aplicação correspondente
 
 ### API Gateway
 
@@ -210,6 +213,9 @@ Saídas esperadas:
 
 - `api_url`
 - `load_balancer_url`
+- `load_balancer_url_clienteveiculo`
+- `load_balancer_url_ositemestoque`
+- `load_balancer_url_orcamento`
 - `eks_cluster_name`
 
 ## Acesso à aplicação e documentação

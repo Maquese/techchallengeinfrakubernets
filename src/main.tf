@@ -27,6 +27,11 @@ terraform {
   }
 }
 
+moved {
+  from = kubernetes_secret_v1.app
+  to   = kubernetes_secret_v1.app_clienteveiculo
+}
+
 provider "aws" {
   region = var.aws_region
 }
@@ -38,8 +43,12 @@ data "aws_eks_cluster_auth" "main" {
   name = aws_eks_cluster.main.name
 }
 
-data "aws_db_instance" "main" {
-  db_instance_identifier = var.rds_identifier
+data "aws_db_instance" "main_clienteveiculo" {
+  db_instance_identifier = var.rds_identifier_clienteveiculo
+}
+
+data "aws_db_instance" "main_ositemestoque" {
+  db_instance_identifier = var.rds_identifier_ositemestoque
 }
 
 data "aws_security_group" "rds" {
@@ -197,17 +206,63 @@ resource "kubernetes_config_map_v1" "appsettings" {
   depends_on = [aws_eks_node_group.main]
 }
 
-resource "kubernetes_secret_v1" "app" {
+resource "kubernetes_config_map_v1" "appsettings_ositemestoque" {
+  metadata {
+    name = "appsettings-config-ositemestoque"
+  }
+  data = {
+    ASPNETCORE_ENVIRONMENT = "Production"
+    ASPNETCORE_URLS        = "http://+:80"
+    "appsettings.Production.json" = jsonencode({
+      Logging            = { LogLevel = { Default = "Information", Microsoft = "Warning", "Microsoft.Hosting.Lifetime" = "Information" } }
+      AllowedHosts       = "*",
+      "ClienteService"   = "http://auto-repara-svc/",
+      "OrcamentoService" = "http://orcamento-svc/"
+    })
+  }
+  depends_on = [aws_eks_node_group.main]
+}
+
+resource "kubernetes_secret_v1" "app_clienteveiculo" {
   metadata {
     name = "app-secrets"
   }
   type = "Opaque"
   data = {
-    "ConnectionStrings__DefaultConnection" = "Server=${data.aws_db_instance.main.address};Port=3306;Database=Tests;User=root;Password=${var.rds_password}"
+    "ConnectionStrings__DefaultConnection" = "Server=${data.aws_db_instance.main_clienteveiculo.address};Port=3306;Database=ClienteVeiculo;User=root;Password=${var.rds_password}"
     "Jwt__SecretKey"                       = "sua-chave-super-secreta-muito-longa-para-256bits-change-me"
     "Jwt__Issuer"                          = "GestaoAutoRepara"
     "Jwt__Audience"                        = "GestaoAutoReparaUsers"
     "Jwt__ExpirationMinutes"               = "60"
+  }
+  depends_on = [aws_eks_node_group.main]
+}
+
+resource "kubernetes_secret_v1" "app_ositemestoque" {
+  metadata {
+    name = "app-secrets-ositemestoque"
+  }
+  type = "Opaque"
+  data = {
+    "ConnectionStrings__DefaultConnection" = "Server=${data.aws_db_instance.main_ositemestoque.address};Port=3306;Database=OsItemEstoque;User=root;Password=${var.rds_password}"
+    "Jwt__SecretKey"                       = "sua-chave-super-secreta-muito-longa-para-256bits-change-me"
+    "Jwt__Issuer"                          = "GestaoAutoRepara"
+    "Jwt__Audience"                        = "GestaoAutoReparaUsers"
+    "Jwt__ExpirationMinutes"               = "60"
+  }
+  depends_on = [aws_eks_node_group.main]
+}
+
+resource "kubernetes_secret_v1" "app_orcamento" {
+  metadata {
+    name = "app-secrets-orcamento"
+  }
+  type = "Opaque"
+  data = {
+    "Jwt__SecretKey"         = "sua-chave-super-secreta-muito-longa-para-256bits-change-me"
+    "Jwt__Issuer"            = "GestaoAutoRepara"
+    "Jwt__Audience"          = "GestaoAutoReparaUsers"
+    "Jwt__ExpirationMinutes" = "60"
   }
   depends_on = [aws_eks_node_group.main]
 }
@@ -224,6 +279,13 @@ resource "kubernetes_deployment_v1" "app" {
   }
   spec {
     replicas = 1
+    strategy {
+      type = "RollingUpdate"
+      rolling_update {
+        max_surge       = "1"
+        max_unavailable = "0"
+      }
+    }
     selector {
       match_labels = { app = "auto-repara-api" }
     }
@@ -235,11 +297,14 @@ resource "kubernetes_deployment_v1" "app" {
           "tags.datadoghq.com/service" = "auto-repara-api"
           "tags.datadoghq.com/version" = "v1"
         }
+        annotations = {
+          "checksum/appsettings" = sha256(jsonencode(kubernetes_config_map_v1.appsettings.data))
+        }
       }
       spec {
         container {
           name              = "auto-repara-api"
-          image             = var.container_image
+          image             = var.container_image_clienteveiculo
           image_pull_policy = "Always"
           env_from {
             config_map_ref {
@@ -248,7 +313,7 @@ resource "kubernetes_deployment_v1" "app" {
           }
           env_from {
             secret_ref {
-              name = kubernetes_secret_v1.app.metadata[0].name
+              name = kubernetes_secret_v1.app_clienteveiculo.metadata[0].name
             }
           }
           env {
@@ -306,11 +371,255 @@ resource "kubernetes_deployment_v1" "app" {
             requests = { cpu = "100m", memory = "200Mi" }
             limits   = { cpu = "500m", memory = "512Mi" }
           }
+          volume_mount {
+            name       = "appsettings"
+            mount_path = "/app/appsettings.Production.json"
+            sub_path   = "appsettings.Production.json"
+            read_only  = true
+          }
+        }
+        volume {
+          name = "appsettings"
+          config_map {
+            name = kubernetes_config_map_v1.appsettings.metadata[0].name
+            items {
+              key  = "appsettings.Production.json"
+              path = "appsettings.Production.json"
+            }
+          }
         }
       }
     }
   }
-  depends_on = [kubernetes_config_map_v1.appsettings, kubernetes_secret_v1.app]
+  depends_on = [kubernetes_config_map_v1.appsettings, kubernetes_secret_v1.app_clienteveiculo]
+}
+
+resource "kubernetes_deployment_v1" "app_ositemestoque" {
+  metadata {
+    name = "ositemestoque-deployment"
+    labels = {
+      app                          = "ositemestoque-api"
+      "tags.datadoghq.com/env"     = "production"
+      "tags.datadoghq.com/service" = "ositemestoque-api"
+      "tags.datadoghq.com/version" = "v1"
+    }
+  }
+  spec {
+    replicas = 1
+    strategy {
+      type = "RollingUpdate"
+      rolling_update {
+        max_surge       = "1"
+        max_unavailable = "0"
+      }
+    }
+    selector {
+      match_labels = { app = "ositemestoque-api" }
+    }
+    template {
+      metadata {
+        labels = {
+          app                          = "ositemestoque-api"
+          "tags.datadoghq.com/env"     = "production"
+          "tags.datadoghq.com/service" = "ositemestoque-api"
+          "tags.datadoghq.com/version" = "v1"
+        }
+        annotations = {
+          "checksum/appsettings" = sha256(jsonencode(kubernetes_config_map_v1.appsettings_ositemestoque.data))
+        }
+      }
+      spec {
+        container {
+          name              = "ositemestoque-api"
+          image             = var.container_image_ositemestoque
+          image_pull_policy = "Always"
+          env_from {
+            config_map_ref {
+              name = kubernetes_config_map_v1.appsettings_ositemestoque.metadata[0].name
+            }
+          }
+          env_from {
+            secret_ref {
+              name = kubernetes_secret_v1.app_ositemestoque.metadata[0].name
+            }
+          }
+          env {
+            name  = "DD_ENV"
+            value = "production"
+          }
+          env {
+            name  = "DD_SERVICE"
+            value = "ositemestoque-api"
+          }
+          env {
+            name  = "DD_VERSION"
+            value = "v1"
+          }
+          env {
+            name  = "DD_LOGS_INJECTION"
+            value = "true"
+          }
+          env {
+            name = "DD_AGENT_HOST"
+            value_from {
+              field_ref {
+                field_path = "status.hostIP"
+              }
+            }
+          }
+          port {
+            name           = "http"
+            container_port = 80
+            protocol       = "TCP"
+          }
+          readiness_probe {
+            http_get {
+              path   = var.health_check_path
+              port   = "http"
+              scheme = "HTTP"
+            }
+            initial_delay_seconds = 10
+            period_seconds        = 10
+            timeout_seconds       = 3
+            failure_threshold     = 3
+          }
+          liveness_probe {
+            http_get {
+              path   = var.health_check_path
+              port   = "http"
+              scheme = "HTTP"
+            }
+            initial_delay_seconds = 30
+            period_seconds        = 20
+            timeout_seconds       = 5
+            failure_threshold     = 3
+          }
+          resources {
+            requests = { cpu = "100m", memory = "200Mi" }
+            limits   = { cpu = "500m", memory = "512Mi" }
+          }
+          volume_mount {
+            name       = "appsettings"
+            mount_path = "/app/appsettings.Production.json"
+            sub_path   = "appsettings.Production.json"
+            read_only  = true
+          }
+        }
+        volume {
+          name = "appsettings"
+          config_map {
+            name = kubernetes_config_map_v1.appsettings_ositemestoque.metadata[0].name
+            items {
+              key  = "appsettings.Production.json"
+              path = "appsettings.Production.json"
+            }
+          }
+        }
+      }
+    }
+  }
+  depends_on = [kubernetes_config_map_v1.appsettings_ositemestoque, kubernetes_secret_v1.app_ositemestoque]
+}
+
+resource "kubernetes_deployment_v1" "app_orcamento" {
+  metadata {
+    name = "orcamento-deployment"
+    labels = {
+      app                          = "orcamento-api"
+      "tags.datadoghq.com/env"     = "production"
+      "tags.datadoghq.com/service" = "orcamento-api"
+      "tags.datadoghq.com/version" = "v1"
+    }
+  }
+  spec {
+    replicas = 1
+    selector {
+      match_labels = { app = "orcamento-api" }
+    }
+    template {
+      metadata {
+        labels = {
+          app                          = "orcamento-api"
+          "tags.datadoghq.com/env"     = "production"
+          "tags.datadoghq.com/service" = "orcamento-api"
+          "tags.datadoghq.com/version" = "v1"
+        }
+      }
+      spec {
+        container {
+          name              = "orcamento-api"
+          image             = var.container_image_orcamento
+          image_pull_policy = "Always"
+          env_from {
+            config_map_ref {
+              name = kubernetes_config_map_v1.appsettings.metadata[0].name
+            }
+          }
+          env_from {
+            secret_ref {
+              name = kubernetes_secret_v1.app_orcamento.metadata[0].name
+            }
+          }
+          env {
+            name  = "DD_ENV"
+            value = "production"
+          }
+          env {
+            name  = "DD_SERVICE"
+            value = "orcamento-api"
+          }
+          env {
+            name  = "DD_VERSION"
+            value = "v1"
+          }
+          env {
+            name  = "DD_LOGS_INJECTION"
+            value = "true"
+          }
+          env {
+            name = "DD_AGENT_HOST"
+            value_from {
+              field_ref {
+                field_path = "status.hostIP"
+              }
+            }
+          }
+          port {
+            name           = "http"
+            container_port = 80
+            protocol       = "TCP"
+          }
+          readiness_probe {
+            http_get {
+              path   = var.health_check_path
+              port   = "http"
+              scheme = "HTTP"
+            }
+            initial_delay_seconds = 10
+            period_seconds        = 10
+            timeout_seconds       = 3
+            failure_threshold     = 3
+          }
+          liveness_probe {
+            http_get {
+              path   = var.health_check_path
+              port   = "http"
+              scheme = "HTTP"
+            }
+            initial_delay_seconds = 30
+            period_seconds        = 20
+            timeout_seconds       = 5
+            failure_threshold     = 3
+          }
+          resources {
+            requests = { cpu = "100m", memory = "200Mi" }
+            limits   = { cpu = "500m", memory = "512Mi" }
+          }
+        }
+      }
+    }
+  }
+  depends_on = [kubernetes_config_map_v1.appsettings, kubernetes_secret_v1.app_orcamento]
 }
 
 resource "kubernetes_horizontal_pod_autoscaler_v2" "app" {
@@ -352,6 +661,76 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "app" {
   }
 }
 
+resource "kubernetes_horizontal_pod_autoscaler_v2" "app_ositemestoque" {
+  metadata {
+    name = "ositemestoque-hpa"
+  }
+  spec {
+    min_replicas = 2
+    max_replicas = 4
+    scale_target_ref {
+      api_version = "apps/v1"
+      kind        = "Deployment"
+      name        = kubernetes_deployment_v1.app_ositemestoque.metadata[0].name
+    }
+    metric {
+      type = "Resource"
+      resource {
+        name = "cpu"
+        target {
+          type                = "Utilization"
+          average_utilization = 60
+        }
+      }
+    }
+    metric {
+      type = "Resource"
+      resource {
+        name = "memory"
+        target {
+          type                = "Utilization"
+          average_utilization = 70
+        }
+      }
+    }
+  }
+}
+
+resource "kubernetes_horizontal_pod_autoscaler_v2" "app_orcamento" {
+  metadata {
+    name = "orcamento-hpa"
+  }
+  spec {
+    min_replicas = 2
+    max_replicas = 4
+    scale_target_ref {
+      api_version = "apps/v1"
+      kind        = "Deployment"
+      name        = kubernetes_deployment_v1.app_orcamento.metadata[0].name
+    }
+    metric {
+      type = "Resource"
+      resource {
+        name = "cpu"
+        target {
+          type                = "Utilization"
+          average_utilization = 60
+        }
+      }
+    }
+    metric {
+      type = "Resource"
+      resource {
+        name = "memory"
+        target {
+          type                = "Utilization"
+          average_utilization = 70
+        }
+      }
+    }
+  }
+}
+
 resource "kubernetes_service_v1" "app" {
   metadata {
     name = "auto-repara-svc"
@@ -373,13 +752,58 @@ resource "kubernetes_service_v1" "app" {
   depends_on             = [kubernetes_deployment_v1.app]
 }
 
+resource "kubernetes_service_v1" "app_ositemestoque" {
+  metadata {
+    name = "ositemestoque-svc"
+    annotations = {
+      "service.beta.kubernetes.io/aws-load-balancer-scheme"  = "internet-facing"
+      "service.beta.kubernetes.io/aws-load-balancer-subnets" = join(",", var.subnet_ids)
+    }
+  }
+  spec {
+    selector = { app = "ositemestoque-api" }
+    port {
+      name        = "http"
+      port        = 80
+      target_port = "http"
+    }
+    type = "LoadBalancer"
+  }
+  wait_for_load_balancer = true
+  depends_on             = [kubernetes_deployment_v1.app_ositemestoque]
+}
+
+resource "kubernetes_service_v1" "app_orcamento" {
+  metadata {
+    name = "orcamento-svc"
+    annotations = {
+      "service.beta.kubernetes.io/aws-load-balancer-scheme"  = "internet-facing"
+      "service.beta.kubernetes.io/aws-load-balancer-subnets" = join(",", var.subnet_ids)
+    }
+  }
+  spec {
+    selector = { app = "orcamento-api" }
+    port {
+      name        = "http"
+      port        = 80
+      target_port = "http"
+    }
+    type = "LoadBalancer"
+  }
+  wait_for_load_balancer = true
+  depends_on             = [kubernetes_deployment_v1.app_orcamento]
+}
+
 resource "kubectl_manifest" "metrics_server" {
   yaml_body  = file("${path.module}/components.yaml")
   depends_on = [aws_eks_node_group.main]
 }
 
 locals {
-  application_base_url = "http://${kubernetes_service_v1.app.status[0].load_balancer[0].ingress[0].hostname}"
+  application_base_url_clienteveiculo = "http://${kubernetes_service_v1.app.status[0].load_balancer[0].ingress[0].hostname}"
+  application_base_url_ositemestoque  = "http://${kubernetes_service_v1.app_ositemestoque.status[0].load_balancer[0].ingress[0].hostname}"
+  application_base_url_orcamento      = "http://${kubernetes_service_v1.app_orcamento.status[0].load_balancer[0].ingress[0].hostname}"
+  application_base_url                = local.application_base_url_clienteveiculo
 }
 
 resource "aws_api_gateway_rest_api" "main" {
@@ -423,7 +847,7 @@ resource "aws_api_gateway_rest_api" "main" {
             httpMethod           = "GET"
             payloadFormatVersion = "1.0"
             type                 = "HTTP_PROXY"
-            uri                  = "${local.application_base_url}/swagger/{proxy}"
+            uri                  = "${local.application_base_url_clienteveiculo}/swagger/{proxy}"
             requestParameters = {
               "integration.request.path.proxy" = "method.request.path.proxy"
             }
@@ -432,139 +856,139 @@ resource "aws_api_gateway_rest_api" "main" {
       }
       "/api/cliente/criarcliente" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/criarcliente" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_clienteveiculo}/api/cliente/criarcliente" }
       } }
       "/api/cliente/atualizarcliente" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/atualizarcliente" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_clienteveiculo}/api/cliente/atualizarcliente" }
       } }
       "/api/cliente/buscarcliente" = { get = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/buscarcliente" }
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_clienteveiculo}/api/cliente/buscarcliente" }
       } }
       "/api/cliente/inativarcliente" = { delete = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/inativarcliente" }
+        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_clienteveiculo}/api/cliente/inativarcliente" }
       } }
       "/api/cliente/adicionarveiculo" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/adicionarveiculo" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_clienteveiculo}/api/cliente/adicionarveiculo" }
       } }
       "/api/cliente/buscarveiculo" = { get = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/buscarveiculo" }
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_clienteveiculo}/api/cliente/buscarveiculo" }
       } }
       "/api/cliente/atualizarveiculo" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/atualizarveiculo" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_clienteveiculo}/api/cliente/atualizarveiculo" }
       } }
       "/api/cliente/inativarveiculo" = { delete = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/cliente/inativarveiculo" }
+        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_clienteveiculo}/api/cliente/inativarveiculo" }
       } }
       "/api/itemestoque/adicionaritemestoque" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/adicionaritemestoque" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/itemestoque/adicionaritemestoque" }
       } }
       "/api/itemestoque/listaritensestoque" = { get = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/listaritensestoque" }
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/itemestoque/listaritensestoque" }
       } }
       "/api/itemestoque/obteritemestoque" = { get = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/obteritemestoque" }
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/itemestoque/obteritemestoque" }
       } }
       "/api/itemestoque/atualizaritemestoque" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/atualizaritemestoque" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/itemestoque/atualizaritemestoque" }
       } }
       "/api/itemestoque/inativaritemestoque" = { delete = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/inativaritemestoque" }
+        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/itemestoque/inativaritemestoque" }
       } }
       "/api/itemestoque/adicionarquantidadeestoque" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/itemestoque/adicionarquantidadeestoque" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/itemestoque/adicionarquantidadeestoque" }
       } }
       "/api/orcamento/criarorcamento" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/criarorcamento" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_orcamento}/api/orcamento/criarorcamento" }
       } }
       "/api/orcamento/aprovarorcamento" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/aprovarorcamento" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_orcamento}/api/orcamento/aprovarorcamento" }
       } }
       "/api/orcamento/negarorcamento" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/negarorcamento" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_orcamento}/api/orcamento/negarorcamento" }
       } }
       "/api/orcamento/pagamentoefetuado" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/pagamentoefetuado" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_orcamento}/api/orcamento/pagamentoefetuado" }
       } }
       "/api/orcamento/listarorcamentos" = { get = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/orcamento/listarorcamentos" }
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_orcamento}/api/orcamento/listarorcamentos" }
       } }
       "/api/ordemservico/criarordemservico" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/criarordemservico" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/criarordemservico" }
       } }
       "/api/ordemservico/atribuirmecanicoemdiagnostico" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/atribuirmecanicoemdiagnostico" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/atribuirmecanicoemdiagnostico" }
       } }
       "/api/ordemservico/diagnosticofinalizado" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/diagnosticofinalizado" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/diagnosticofinalizado" }
       } }
       "/api/ordemservico/atribuirmecanicoemexecucao" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/atribuirmecanicoemexecucao" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/atribuirmecanicoemexecucao" }
       } }
       "/api/ordemservico/finalizarordemservico" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/finalizarordemservico" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/finalizarordemservico" }
       } }
       "/api/ordemservico/statusatualordensservicocliente" = { get = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/statusatualordensservicocliente" }
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/statusatualordensservicocliente" }
       } }
       "/api/ordemservico/tempomedioexecucaominutos" = { get = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/tempomedioexecucaominutos" }
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/tempomedioexecucaominutos" }
       } }
       "/api/ordemservico/listarordensservicoporstatus" = { get = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/listarordensservicoporstatus" }
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/listarordensservicoporstatus" }
       } }
       "/api/ordemservico/aberturaos" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/aberturaos" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/aberturaos" }
       } }
       "/api/ordemservico/consultastatusordemservico" = { get = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/consultastatusordemservico" }
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/consultastatusordemservico" }
       } }
       "/api/ordemservico/adicionarservico" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/adicionarservico" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/adicionarservico" }
       } }
       "/api/ordemservico/buscarservico" = { get = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/buscarservico" }
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/buscarservico" }
       } }
       "/api/ordemservico/atualizarservico" = { post = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/atualizarservico" }
+        x-amazon-apigateway-integration = { httpMethod = "POST", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/atualizarservico" }
       } }
       "/api/ordemservico/inativarservico" = { delete = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/inativarservico" }
+        x-amazon-apigateway-integration = { httpMethod = "DELETE", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/inativarservico" }
       } }
       "/api/ordemservico/listarservicosativos" = { get = {
         security                        = [{ lambda_authorizer = [] }]
-        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url}/api/ordemservico/listarservicosativos" }
+        x-amazon-apigateway-integration = { httpMethod = "GET", payloadFormatVersion = "1.0", type = "HTTP_PROXY", uri = "${local.application_base_url_ositemestoque}/api/ordemservico/listarservicosativos" }
       } }
     }
   })
@@ -601,4 +1025,7 @@ resource "aws_api_gateway_stage" "main" {
 
 output "api_url" { value = "https://${aws_api_gateway_rest_api.main.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.main.stage_name}" }
 output "load_balancer_url" { value = local.application_base_url }
+output "load_balancer_url_clienteveiculo" { value = local.application_base_url_clienteveiculo }
+output "load_balancer_url_ositemestoque" { value = local.application_base_url_ositemestoque }
+output "load_balancer_url_orcamento" { value = local.application_base_url_orcamento }
 output "eks_cluster_name" { value = aws_eks_cluster.main.name }

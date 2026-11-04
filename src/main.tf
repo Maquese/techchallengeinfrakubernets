@@ -6,7 +6,7 @@ terraform {
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.38.0"
+      version = "3.2.1"
     }
     kubectl = {
       source  = "gavinbunney/kubectl"
@@ -264,6 +264,21 @@ resource "kubernetes_secret_v1" "app_orcamento" {
     "Jwt__Audience"          = "GestaoAutoReparaUsers"
     "Jwt__ExpirationMinutes" = "60"
   }
+  depends_on = [aws_eks_node_group.main]
+}
+
+resource "kubernetes_secret_v1" "aws_credentials" {
+  metadata {
+    name = "aws-credentials"
+  }
+
+  data = {
+    AWS_ACCESS_KEY_ID     = var.aws_access_key_id
+    AWS_SECRET_ACCESS_KEY = var.aws_secret_access_key
+    AWS_SESSION_TOKEN     = var.aws_session_token
+    AWS_REGION            = "us-east-1"
+  }
+
   depends_on = [aws_eks_node_group.main]
 }
 
@@ -560,6 +575,11 @@ resource "kubernetes_deployment_v1" "app_orcamento" {
               name = kubernetes_secret_v1.app_orcamento.metadata[0].name
             }
           }
+          env_from {
+            secret_ref {
+              name = kubernetes_secret_v1.aws_credentials.metadata[0].name
+            }
+          }
           env {
             name  = "DD_ENV"
             value = "production"
@@ -619,7 +639,11 @@ resource "kubernetes_deployment_v1" "app_orcamento" {
       }
     }
   }
-  depends_on = [kubernetes_config_map_v1.appsettings, kubernetes_secret_v1.app_orcamento]
+  depends_on = [
+    kubernetes_config_map_v1.appsettings,
+    kubernetes_secret_v1.app_orcamento,
+    kubernetes_secret_v1.aws_credentials,
+  ]
 }
 
 resource "kubernetes_horizontal_pod_autoscaler_v2" "app" {
@@ -628,7 +652,7 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "app" {
   }
 
   spec {
-    min_replicas = 2
+    min_replicas = 1
     max_replicas = 4
 
     scale_target_ref {
@@ -666,7 +690,7 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "app_ositemestoque" {
     name = "ositemestoque-hpa"
   }
   spec {
-    min_replicas = 2
+    min_replicas = 1
     max_replicas = 4
     scale_target_ref {
       api_version = "apps/v1"
@@ -701,7 +725,7 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "app_orcamento" {
     name = "orcamento-hpa"
   }
   spec {
-    min_replicas = 2
+    min_replicas = 1
     max_replicas = 4
     scale_target_ref {
       api_version = "apps/v1"
@@ -803,7 +827,6 @@ locals {
   application_base_url_clienteveiculo = "http://${kubernetes_service_v1.app.status[0].load_balancer[0].ingress[0].hostname}"
   application_base_url_ositemestoque  = "http://${kubernetes_service_v1.app_ositemestoque.status[0].load_balancer[0].ingress[0].hostname}"
   application_base_url_orcamento      = "http://${kubernetes_service_v1.app_orcamento.status[0].load_balancer[0].ingress[0].hostname}"
-  application_base_url                = local.application_base_url_clienteveiculo
 }
 
 resource "aws_api_gateway_rest_api" "main" {
@@ -1024,7 +1047,6 @@ resource "aws_api_gateway_stage" "main" {
 }
 
 output "api_url" { value = "https://${aws_api_gateway_rest_api.main.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.main.stage_name}" }
-output "load_balancer_url" { value = local.application_base_url }
 output "load_balancer_url_clienteveiculo" { value = local.application_base_url_clienteveiculo }
 output "load_balancer_url_ositemestoque" { value = local.application_base_url_ositemestoque }
 output "load_balancer_url_orcamento" { value = local.application_base_url_orcamento }

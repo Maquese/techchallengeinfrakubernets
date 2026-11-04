@@ -104,6 +104,7 @@ Antes de executar ou fazer deploy deste ambiente, verifique se você possui:
   - Orçamento e ordem de serviço (`container_image_orcamento`)
 - Compartilha o ConfigMap `appsettings-config`, pois as configurações ASP.NET são iguais entre os containers
 - Mantém secrets separados por aplicação; ClienteVeiculo e OsItemEstoque usam suas próprias instâncias RDS, e Orcamento recebe as configurações de dados da própria aplicação
+- O Terraform configura uma resource policy na tabela DynamoDB `Orcamento` para permitir operações de dados à role `LabRole`. O launch template do node group habilita IMDSv2 com hop limit 2 para permitir que os pods obtenham as credenciais do nó; assim, outros pods que alcançarem o IMDS também poderão usar as permissões da role.
 - Encaminha as rotas do API Gateway para o Load Balancer da aplicação correspondente
 
 ### API Gateway
@@ -160,6 +161,7 @@ A pipeline é acionada por push na branch `main` e executa:
 5. `terraform apply -input=false -auto-approve`
 
 > A variável `TF_VAR_rds_password` é enviada por secret do GitHub para o apply.
+> O deployment de Orçamento também recebe credenciais temporárias para o DynamoDB por meio do Secret `aws-credentials`. Configure `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` e, opcionalmente, `AWS_REGION` como secrets no environment `production` do GitHub Actions. Essas credenciais também ficam armazenadas no state do Terraform; proteja o acesso ao backend S3.
 
 ## Como executar localmente
 
@@ -194,6 +196,15 @@ terraform validate
 ### 5) Gerar plano
 
 ```bash
+terraform plan -input=false -out=tfplan
+```
+
+Para permitir que o pod de Orçamento acesse o DynamoDB, forneça as credenciais temporárias na execução local sem adicioná-las a arquivos versionados:
+
+```powershell
+$env:TF_VAR_aws_access_key_id = "<access-key-id>"
+$env:TF_VAR_aws_secret_access_key = "<secret-access-key>"
+$env:TF_VAR_aws_session_token = "<session-token>"
 terraform plan -input=false -out=tfplan
 ```
 

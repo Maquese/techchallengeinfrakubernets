@@ -2,25 +2,38 @@ variable "aws_region" {
   type    = string
   default = "us-east-1"
 }
+
+variable "aws_access_key_id" {
+  type      = string
+  sensitive = true
+}
+
+variable "aws_secret_access_key" {
+  type      = string
+  sensitive = true
+}
+
+variable "aws_session_token" {
+  type      = string
+  sensitive = true
+}
+
 variable "vpc_id" {
   type    = string
-  default = "vpc-0b8ea6480aff3581d"
+  default = "vpc-0c04f9d3f5e86ae50"
 }
 variable "subnet_ids" {
   type    = list(string)
-  default = ["subnet-01799be41421baa8d", "subnet-0d850838bbd1a4e72", "subnet-0a6b760a3d564676b"]
+  default = ["subnet-02cd6e93afd15dae9", "subnet-02fb07eb66ab63955"]
 }
 variable "eks_role_name" {
   type    = string
   default = "LabRole"
 }
 variable "rds_password" {
-  type    = string
-  default = "minha-senha"
-}
-variable "container_image" {
-  type    = string
-  default = "maquese/techchallenge-3:v1"
+  type      = string
+  sensitive = true
+  default   = "minha-senha"
 }
 
 variable "auth_lambda_function_name" {
@@ -33,14 +46,39 @@ variable "authorizer_lambda_function_name" {
   default = "auto-repara-authorizer"
 }
 
-variable "rds_identifier" {
+variable "container_image_clienteveiculo" {
   type    = string
-  default = "techchallenge-mysql"
+  default = "maquese/clienteveiculo:latest"
+}
+
+variable "rds_identifier_clienteveiculo" {
+  type    = string
+  default = "clienteveiculo-mysql"
+}
+
+variable "container_image_ositemestoque" {
+  type    = string
+  default = "maquese/ositemestoque:latest"
+}
+
+variable "rds_identifier_ositemestoque" {
+  type    = string
+  default = "ordemservico-mysql"
+}
+
+variable "container_image_orcamento" {
+  type    = string
+  default = "maquese/orcamento:latest"
+}
+
+variable "dynamo_identifier_orcamento" {
+  type    = string
+  default = "Orcamento"
 }
 
 variable "datadog_api_key" {
-  type    = string
-  default = "3e4f4e1d5e5dbb406cc861f33fb9a4ff"
+  type      = string
+  sensitive = true
 }
 
 variable "datadog_site" {

@@ -98,10 +98,14 @@ Antes de executar ou fazer deploy deste ambiente, verifique se você possui:
 
 ### Aplicação
 
-- Faz deploy de um container da aplicação em um Deployment Kubernetes
-- Expõe a API por meio de um `Service` do tipo `LoadBalancer`
-- Configura `HorizontalPodAutoscaler` para escalonamento de pods
-- Define variáveis de ambiente e secrets da aplicação
+- Faz deploy de três aplicações independentes, cada uma com seu `Deployment`, `Service` do tipo `LoadBalancer` e `HorizontalPodAutoscaler`:
+  - Cliente/veículo (`container_image_clienteveiculo`)
+  - Itens de estoque (`container_image_ositemestoque`)
+  - Orçamento e ordem de serviço (`container_image_orcamento`)
+- Compartilha o ConfigMap `appsettings-config`, pois as configurações ASP.NET são iguais entre os containers
+- Mantém secrets separados por aplicação; ClienteVeiculo e OsItemEstoque usam suas próprias instâncias RDS, e Orcamento recebe as configurações de dados da própria aplicação
+- O Terraform configura uma resource policy na tabela DynamoDB `Orcamento` para permitir operações de dados à role `LabRole`. O launch template do node group habilita IMDSv2 com hop limit 2 para permitir que os pods obtenham as credenciais do nó; assim, outros pods que alcançarem o IMDS também poderão usar as permissões da role.
+- Encaminha as rotas do API Gateway para o Load Balancer da aplicação correspondente
 
 ### API Gateway
 
@@ -156,7 +160,8 @@ A pipeline é acionada por push na branch `main` e executa:
 4. `terraform init -reconfigure -input=false`
 5. `terraform apply -input=false -auto-approve`
 
-> A variável `TF_VAR_rds_password` é enviada por secret do GitHub para o apply.
+> `TF_VAR_rds_password` e `TF_VAR_datadog_api_key` são enviadas por secrets do GitHub para o apply. Configure `TF_VAR_RDS_PASSWORD` e `DD_APIKEY` como secrets do repositório.
+> O deployment de Orçamento também recebe credenciais temporárias para o DynamoDB por meio do Secret `aws-credentials`. Configure `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` e, opcionalmente, `AWS_REGION` como secrets no environment `production` do GitHub Actions. Essas credenciais também ficam armazenadas no state do Terraform; proteja o acesso ao backend S3.
 
 ## Como executar localmente
 
@@ -191,13 +196,23 @@ terraform validate
 ### 5) Gerar plano
 
 ```bash
-terraform plan -input=false -out=tfplan
+terraform plan -out=tfplan
+```
+
+Sem `-input=false`, o Terraform solicita no terminal as variáveis obrigatórias que não foram definidas no ambiente.
+Para evitar os prompts das credenciais temporárias usadas pelo pod de Orçamento, você pode defini-las antes do comando, sem adicioná-las a arquivos versionados:
+
+```powershell
+$env:TF_VAR_aws_access_key_id = "<access-key-id>"
+$env:TF_VAR_aws_secret_access_key = "<secret-access-key>"
+$env:TF_VAR_aws_session_token = "<session-token>"
+terraform plan -out=tfplan
 ```
 
 ### 6) Aplicar infraestrutura
 
 ```bash
-terraform apply -input=false -auto-approve
+terraform apply -auto-approve
 ```
 
 ### 7) Verificar saídas
@@ -210,6 +225,9 @@ Saídas esperadas:
 
 - `api_url`
 - `load_balancer_url`
+- `load_balancer_url_clienteveiculo`
+- `load_balancer_url_ositemestoque`
+- `load_balancer_url_orcamento`
 - `eks_cluster_name`
 
 ## Acesso à aplicação e documentação

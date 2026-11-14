@@ -160,7 +160,7 @@ A pipeline é acionada por push na branch `main` e executa:
 4. `terraform init -reconfigure -input=false`
 5. `terraform apply -input=false -auto-approve`
 
-> A variável `TF_VAR_rds_password` é enviada por secret do GitHub para o apply.
+> `TF_VAR_rds_password` e `TF_VAR_datadog_api_key` são enviadas por secrets do GitHub para o apply. Configure `TF_VAR_RDS_PASSWORD` e `DD_APIKEY` como secrets do repositório.
 > O deployment de Orçamento também recebe credenciais temporárias para o DynamoDB por meio do Secret `aws-credentials`. Configure `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` e, opcionalmente, `AWS_REGION` como secrets no environment `production` do GitHub Actions. Essas credenciais também ficam armazenadas no state do Terraform; proteja o acesso ao backend S3.
 
 ## Como executar localmente

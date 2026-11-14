@@ -105,4 +105,5 @@ jobs:
       - name: Create Terraform plan
         env:
           TF_VAR_rds_password: ${{ secrets.TF_VAR_RDS_PASSWORD }}
+          TF_VAR_datadog_api_key: ${{ secrets.DD_APIKEY }}
         run: terraform plan -refresh=false -input=false -out=tfplan

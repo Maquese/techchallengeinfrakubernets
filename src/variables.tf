@@ -77,8 +77,8 @@ variable "dynamo_identifier_orcamento" {
 }
 
 variable "datadog_api_key" {
-  type    = string
-  default = "3e4f4e1d5e5dbb406cc861f33fb9a4ff"
+  type      = string
+  sensitive = true
 }
 
 variable "datadog_site" {

@@ -196,22 +196,23 @@ terraform validate
 ### 5) Gerar plano
 
 ```bash
-terraform plan -input=false -out=tfplan
+terraform plan -out=tfplan
 ```
 
-Para permitir que o pod de Orçamento acesse o DynamoDB, forneça as credenciais temporárias na execução local sem adicioná-las a arquivos versionados:
+Sem `-input=false`, o Terraform solicita no terminal as variáveis obrigatórias que não foram definidas no ambiente.
+Para evitar os prompts das credenciais temporárias usadas pelo pod de Orçamento, você pode defini-las antes do comando, sem adicioná-las a arquivos versionados:
 
 ```powershell
 $env:TF_VAR_aws_access_key_id = "<access-key-id>"
 $env:TF_VAR_aws_secret_access_key = "<secret-access-key>"
 $env:TF_VAR_aws_session_token = "<session-token>"
-terraform plan -input=false -out=tfplan
+terraform plan -out=tfplan
 ```
 
 ### 6) Aplicar infraestrutura
 
 ```bash
-terraform apply -input=false -auto-approve
+terraform apply -auto-approve
 ```
 
 ### 7) Verificar saídas

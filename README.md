@@ -158,7 +158,10 @@ A pipeline é acionada por push na branch `main` e executa:
 2. instalação do Terraform
 3. configuração das credenciais AWS
 4. `terraform init -reconfigure -input=false`
-5. `terraform apply -input=false -auto-approve`
+5. `terraform apply -target=aws_eks_cluster.main -input=false -auto-approve` para criar ou atualizar o cluster antes de configurar os providers Kubernetes e Helm
+6. `terraform apply -input=false -auto-approve` para aplicar toda a infraestrutura
+
+O apply direcionado é seguido pelo apply completo na mesma execução. Ele usa o state remoto para identificar o cluster existente; não remove recursos do state nem importa deployments automaticamente. Após um destroy, a próxima execução cria novamente o cluster. A configuração ainda requer os recursos AWS consultados por data sources, como a role, as instâncias RDS, o security group e as funções Lambda.
 
 > `TF_VAR_rds_password` e `TF_VAR_datadog_api_key` são enviadas por secrets do GitHub para o apply. Configure `TF_VAR_RDS_PASSWORD` e `DD_APIKEY` como secrets do repositório.
 > O deployment de Orçamento também recebe credenciais temporárias para o DynamoDB por meio do Secret `aws-credentials`. Configure `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` e, opcionalmente, `AWS_REGION` como secrets no environment `production` do GitHub Actions. Essas credenciais também ficam armazenadas no state do Terraform; proteja o acesso ao backend S3.

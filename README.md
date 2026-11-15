@@ -226,7 +226,7 @@ terraform output
 
 Saídas esperadas:
 
-- `api_url`
+- `api_url` 
 - `load_balancer_url`
 - `load_balancer_url_clienteveiculo`
 - `load_balancer_url_ositemestoque`

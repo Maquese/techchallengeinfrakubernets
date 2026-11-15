@@ -81,6 +81,11 @@ variable "datadog_api_key" {
   sensitive = true
 }
 
+variable "mercadopago_access_token" {
+  type      = string
+  sensitive = true
+}
+
 variable "datadog_site" {
   type    = string
   default = "datadoghq.com"

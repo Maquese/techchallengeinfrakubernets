@@ -259,10 +259,12 @@ resource "kubernetes_secret_v1" "app_orcamento" {
   }
   type = "Opaque"
   data = {
-    "Jwt__SecretKey"         = "sua-chave-super-secreta-muito-longa-para-256bits-change-me"
-    "Jwt__Issuer"            = "GestaoAutoRepara"
-    "Jwt__Audience"          = "GestaoAutoReparaUsers"
-    "Jwt__ExpirationMinutes" = "60"
+    "Jwt__SecretKey"           = "sua-chave-super-secreta-muito-longa-para-256bits-change-me"
+    "Jwt__Issuer"              = "GestaoAutoRepara"
+    "Jwt__Audience"            = "GestaoAutoReparaUsers"
+    "Jwt__ExpirationMinutes"   = "60",
+    "MercadoPago__AccessToken" = var.mercadopago_access_token
+
   }
   depends_on = [aws_eks_node_group.main]
 }
